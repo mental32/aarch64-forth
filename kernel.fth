@@ -1,6 +1,79 @@
-\ Core primitives implemented in Forth
+\ Forth implementations for words moved out of kernel.S
 include prelude.fth
-include kernel.fth
+
+: digit>char  ( u -- c )
+  9 > IF 55 + ELSE 48 + THEN ;
+
+: .hex-byte  ( u -- )
+  dup 15 and >r        \ save low nibble
+  16 / 15 and          \ high nibble
+  digit>char emit
+  r> digit>char emit ;
+
+: .hex  ( u -- )
+  dup 16 /mod swap
+  digit>char emit
+  digit>char emit ;
+
+: .hex32  ( u -- )
+  dup 256 /mod >r            \ save low byte, keep high part
+  dup 256 /mod >r            \ save next byte
+  dup 256 /mod >r            \ save third byte
+  .hex-byte                  \ emit highest byte (remaining on stack)
+  r> .hex-byte               \ third
+  r> .hex-byte               \ second
+  r> .hex-byte ;             \ low
+
+: hex64  ( u -- )
+  dup 256 /mod >r
+  dup 256 /mod >r
+  dup 256 /mod >r
+  dup 256 /mod >r
+  dup 256 /mod >r
+  dup 256 /mod >r
+  dup 256 /mod >r
+  .hex-byte
+  r> .hex-byte
+  r> .hex-byte
+  r> .hex-byte
+  r> .hex-byte
+  r> .hex-byte
+  r> .hex-byte
+  r> .hex-byte ;
+
+: move  ( src dest count -- )
+  begin
+    dup 0<> while
+      >r
+      >r
+      dup c@
+      r@ c!
+      1+
+      r> 1+
+      r> 1-
+    repeat
+  drop drop drop ;
+
+: fill  ( addr count char -- )
+  >r
+  begin
+    dup 0<> while
+      over r@ c!
+      swap 1+ swap
+      1-
+    repeat
+  drop drop rdrop ;
+
+: abs  ( n -- u )
+  dup 0< IF negate THEN ;
+
+: min  ( a b -- n )
+  2dup < IF drop ELSE nip THEN ;
+
+: max  ( a b -- n )
+  2dup > IF drop ELSE nip THEN ;
+
+\ Merged interpreter and compiler definitions
 include read-line.fth
 
 : init-dict  ( -- )

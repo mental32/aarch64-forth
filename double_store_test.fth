@@ -1,10 +1,10 @@
 \ EXPECT: po
 \ 2! / 2@ round-trip
 
-: two_store  \ ( x1 x2 addr -- )
+: two_store  ( x1 x2 addr -- )
   >r swap r@ ! r> 8 + ! ;
 
-: two_fetch  \ ( addr -- x1 x2 )
+: two_fetch  ( addr -- x1 x2 )
   dup @ swap 8 + @ ;
 
 : boot

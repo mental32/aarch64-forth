@@ -1,9 +1,6 @@
 \ EXPECT: AB
 \ Memory cell ops: ! @ +!
-
-: rot    ( a b c -- b c a )  >r swap r> swap ;
-: +!     ( n addr -- )       dup @ rot + swap ! ;
-
+include prelude.fth
 : boot
   65 &var_cell !          \ A
   &var_cell @ emit        \ A

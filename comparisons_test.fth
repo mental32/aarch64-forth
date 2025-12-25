@@ -1,10 +1,6 @@
 \ EXPECT: EFSTESS
 \ Comparison primitives: 0= 0< = < >
-
-: =      ( a b -- flag )     - 0= ;
-: <      ( a b -- flag )     - 0< ;
-: >      ( a b -- flag )     swap < ;
-
+include prelude.fth
 : boot
   0 0= 70 + emit            \ E
   1 0= 70 + emit            \ F

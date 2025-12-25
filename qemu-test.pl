@@ -15,7 +15,7 @@ my $verbose = $ENV{VERBOSE} ? 1 : 0;
 
 # Fresh zig cache if requested
 if (-d ".zig-cache") {
-    system('rm', '-rf', '.zig-cache');
+    system('rm', '-rv', '.zig-cache');
 }
 
 while (@ARGV) {
@@ -80,7 +80,7 @@ my $qemu = $ENV{QEMU} || which('qemu-system-aarch64')
 
 my $timeout_bin = which('timeout') || which('gtimeout');
 
-for my $t (sort glob("tests/*.fs")) {
+for my $t (sort glob("*_test.fth")) {
     print "==> $t\n";
 
     my ($expect, $input) = expect_for_file($t);

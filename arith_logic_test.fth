@@ -1,14 +1,6 @@
 \ EXPECT: FCACCdPADEE
 \ Arithmetic and logic primitives
-
-: negate ( n -- -n )  0 swap - ;
-: 1+     ( n -- n+1 ) 1 + ;
-: 1-     ( n -- n-1 ) 1 - ;
-: 2*     ( n -- 2*n ) dup + ;
-
-: invert ( flag -- flag ) 0= ;
-
-
+include prelude.fth
 
 : boot
   2 3 + 65 + emit           \ F

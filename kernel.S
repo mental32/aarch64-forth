@@ -62,7 +62,6 @@
 .equ MEM_BASE, 0x40000000 // base of usable RAM
 .equ MEM_SIZE, 0x08000000 // 128MB on QEMU virt
 .equ INPUT_SIZE, 256      // line input buffer size
-.equ DEBUG_NEXT_BUDGET, 0  // number of sys_next traces to emit (0 = off)
 
 .bss              // uninitialized data section
 .global bss_start // expose start of BSS
@@ -90,16 +89,10 @@ input_buf: // buffer for input characters
 input_len: // length of current input
 	.quad   0         // initialize length to zero
 
-	.align  8
-debug_next_budget: // remaining sys_next traces to emit
-	.quad 0
-
 	.align 8
 uart_byte_ready:
 	.quad 0
 uart_byte_value:
-	.quad 0
-uart_base_shadow:
 	.quad 0
 	.global input_pos // expose cursor position
 
@@ -227,65 +220,6 @@ init_el_setup_common: // common path after EL control setup
 	// Reset UART byte ready flag
 	ldr x0, =uart_byte_ready
 	str xzr, [x0]
-	// Record UART base for debugging
-	ldr x0, =uart_base_shadow
-	str x18, [x0]
-	// Early debug: show x18 and shadow contents (manual 8-hex-digit emit)
-	cbz x18, debug_mark_zero
-	mov w2, #'B'
-	b   debug_emit_header
-debug_mark_zero:
-	mov w2, #'Z'
-debug_emit_header:
-	bl  hw_uart_putc
-	// print x18 using x4 as working copy to keep across hw_uart_putc
-	mov x4, x18
-	mov x5, #8
-debug_hex_x18:
-	lsr x3, x4, #28
-	and w3, w3, #0xF
-	cmp w3, #10
-	b.lt debug_hex_x18_digit
-	add w3, w3, #'A' - 10
-	b   debug_hex_x18_emit
-debug_hex_x18_digit:
-	add w3, w3, #'0'
-debug_hex_x18_emit:
-	mov w2, w3
-	bl  hw_uart_putc
-	lsl x4, x4, #4
-	subs x5, x5, #1
-	b.ne debug_hex_x18
-	// space
-	mov w2, #' '
-	bl  hw_uart_putc
-	// print shadow
-	ldr x4, =uart_base_shadow
-	ldr x4, [x4]
-	mov x5, #8
-debug_hex_shadow:
-	lsr x3, x4, #28
-	and w3, w3, #0xF
-	cmp w3, #10
-	b.lt debug_hex_shadow_digit
-	add w3, w3, #'A' - 10
-	b   debug_hex_shadow_emit
-debug_hex_shadow_digit:
-	add w3, w3, #'0'
-debug_hex_shadow_emit:
-	mov w2, w3
-	bl  hw_uart_putc
-	lsl x4, x4, #4
-	subs x5, x5, #1
-	b.ne debug_hex_shadow
-	mov w2, #'\r'
-	bl  hw_uart_putc
-	mov w2, #'\n'
-	bl  hw_uart_putc
-	// Reset debug trace budget for sys_next logging
-	ldr x0, =debug_next_budget
-	mov x1, #DEBUG_NEXT_BUDGET
-	str x1, [x0]
 	ldr x19, =dstack_top // data stack pointer
 	ldr x20, =rstack_top // return stack pointer
 	mov sp, x20          // use return stack as CPU SP
@@ -557,8 +491,6 @@ fail_bounds: // out-of-bounds or misaligned
 
 hw_uart_putc: // write byte in w2 to UART
 	ldr  x18, =UART0_BASE
-	ldr  x9, =uart_base_shadow
-	str  x18, [x9]
 loop_uart_wait_tx: // wait until TX FIFO has space
 	ldr  w3, [x18, #UART0_FR] // read UART flag register
 	tst  w3, #UART0_FR_TXFF   // test transmit FIFO full bit
@@ -568,91 +500,60 @@ loop_uart_wait_tx: // wait until TX FIFO has space
 
 hw_uart_getc: // read a byte from UART
 	ldr  x18, =UART0_BASE
-	ldr  x9, =uart_base_shadow
-	str  x18, [x9]
-	// debug markers
-	mov  w2, #'g'
-	bl   hw_uart_putc
-	ldr  w0, [x18, #UART0_DR] // read received word (debug: no FR check)
+	ldr  w0, [x18, #UART0_DR] // read received word (no FR check)
 	and  w0, w0, #0xFF        // keep low byte
-	mov  w2, #'r'
-	bl   hw_uart_putc
 	ret                       // return to caller
-
-// Non-blocking UART register accessors for debugging
-forth_uart_fr: // ( -- u ) read UART flag register
-	ldr  x18, =UART0_BASE
-	ldr  w0, [x18, #UART0_FR]
-	str  x0, [x19, #-8]!
-	b    sys_next
-
-forth_uart_dr: // ( -- u ) read UART data register (non-blocking)
-	ldr  x18, =UART0_BASE
-	ldr  w0, [x18, #UART0_DR]
-	and  w0, w0, #0xFF
-	str  x0, [x19, #-8]!
-	b    sys_next
-
-forth_uart_ibrd: // ( -- u ) read UART integer baud divisor
-	ldr  x18, =UART0_BASE
-	ldr  w0, [x18, #UART0_IBRD]
-	str  x0, [x19, #-8]!
-	b    sys_next
-
-forth_uart_fbrd: // ( -- u ) read UART fractional baud divisor
-	ldr  x18, =UART0_BASE
-	ldr  w0, [x18, #UART0_FBRD]
-	str  x0, [x19, #-8]!
-	b    sys_next
-
-forth_uart_lcrh: // ( -- u ) read UART line control register
-	ldr  x18, =UART0_BASE
-	ldr  w0, [x18, #UART0_LCRH]
-	str  x0, [x19, #-8]!
-	b    sys_next
-
-forth_uart_cr: // ( -- u ) read UART control register
-	ldr  x18, =UART0_BASE
-	ldr  w0, [x18, #UART0_CR]
-	str  x0, [x19, #-8]!
-	b    sys_next
 
 forth_uart_poll: // ( -- u ) blocking read using hw_uart_getc
 	bl   hw_uart_getc
-	mov  w2, #'p'
-	bl   hw_uart_putc
 	str  x0, [x19, #-8]!
-	mov  w2, #'s'
-	bl   hw_uart_putc
 	b    sys_next
 
-forth_uart_base: // ( -- u ) read uart_base_shadow
-	ldr x0, =uart_base_shadow
-	ldr x0, [x0]
-	str x0, [x19, #-8]!
-	b   sys_next
-
-forth_uart_base_reg: // ( -- u ) read current x18 register
-	mov x0, x18
-	str x0, [x19, #-8]!
-	b   sys_next
-
-forth_hex64: // ( u -- ) emit 16 hex digits
-	ldr x0, [x19], #8
-	mov x1, #16
-hex64_loop:
-	lsr x2, x0, #60
-	and w2, w2, #0xF
-	bl  exc_emit_hex_nibble
-	lsl x0, x0, #4
-	subs x1, x1, #1
-	b.ne hex64_loop
-	b   sys_next
-
+// Primitive word names (label -> Forth name):
+// prim: forth_lit lit
+// prim: forth_exit exit
+// prim-skip: forth_docol
+// prim: forth_dodoes dodoes
+// prim: forth_do_does do-does
+// prim: forth_execute execute
+// prim: forth_emit emit
+// prim: forth_key key
+// prim: forth_next_token next-token
+// prim: forth_find_name find-name
+// prim: forth_parse_num parse-num
+// prim: forth_type type
+// prim: forth_bye bye
+// prim: forth_store !
+// prim: forth_uart_poll uart-poll
+// prim: forth_dup dup
+// prim: forth_drop drop
+// prim: forth_swap swap
+// prim: forth_to_r >r
+// prim: forth_r_from r>
+// prim: forth_r_fetch r@
+// prim: forth_plus +
+// prim: forth_minus -
+// prim: forth_div /
+// prim: forth_mod mod
+// prim: forth_dot .
+// prim: forth_or_op or
+// prim: forth_and_op and
+// prim: forth_xor_op xor
+// prim: forth_invert invert
+// prim: forth_two_slash 2/
+// prim: forth_fetch @
+// prim: forth_c_fetch c@
+// prim: forth_c_store c!
+// prim: forth_zero_equal 0=
+// prim: forth_zero_less 0<
+// prim: forth_branch branch
+// prim: forth_zero_branch 0branch
 // Forth primitive implementations
 .global forth_lit
 .global forth_exit
 .global forth_docol
+.global forth_dodoes
+.global forth_do_does
 .global forth_execute
 .global forth_emit
 .global forth_key
@@ -662,23 +563,7 @@ hex64_loop:
 .global forth_type
 .global forth_bye
 .global forth_store
-	.global forth_move
-.global forth_fill
-.global forth_abs
-.global forth_min
-.global forth_max
-.global forth_uart_hex
-	.global forth_uart_hex
-.global forth_uart_fr
-.global forth_uart_dr
 .global forth_uart_poll
-.global forth_uart_base
-.global forth_uart_base_reg
-.global forth_uart_ibrd
-.global forth_uart_fbrd
-.global forth_uart_lcrh
-.global forth_uart_cr
-.global forth_hex64
 .global forth_dup
 .global forth_drop
 .global forth_swap
@@ -722,6 +607,28 @@ forth_docol: // colon definition entry
 	add x21, x25, #8     // parameter field starts right after CFA
 	b   sys_next
 
+forth_dodoes: // ( -- addr ) run created word
+	add x0, x25, #16
+	str x0, [x19, #-8]!
+	ldr x1, [x25, #8]
+	cbz x1, sys_next
+	str x21, [x20, #-8]!
+	mov x21, x1
+	b   sys_next
+
+forth_do_does: // ( addr -- ) patch latest and exit defining word
+	ldr x0, [x19], #8
+	ldr x1, =latest
+	ldr x1, [x1]
+	cbz x1, sys_next
+	ldrb w2, [x1, #9]
+	add x3, x1, #10
+	add x3, x3, x2
+	add x3, x3, #7
+	and x3, x3, #~7
+	str x0, [x3, #8]
+	b   forth_exit
+
 forth_emit: // ( char -- )
 	ldr w2, [x19], #8
 	bl  hw_uart_putc
@@ -733,9 +640,6 @@ forth_key: // ( -- char )
 	ldr x2, =uart_byte_value
 	str xzr, [x1]          // clear ready flag
 	mov x3, #0x10000       // timeout counter (shorter to avoid hangs)
-	// Debug: mark entry to key
-	mov w2, #'k'
-	bl  hw_uart_putc
 wait_key_irq:
 	ldr w0, [x1]
 	cbnz w0, got_key_irq
@@ -752,31 +656,11 @@ got_key_poll:
 	str  x0, [x19, #-8]!
 	b    sys_next
 poll_uart_now:
-	// Timeout: log and power off so we can see where we died
-	mov w2, #'!'
-	bl  hw_uart_putc
-	// Dump UART masked/RAW interrupt status and flags
-	ldr w0, [x18, #UART0_MIS]
-	bl  exc_emit_hex64
-	mov w2, #' '
-	bl  hw_uart_putc
-	ldr w0, [x18, #UART0_RIS]
-	bl  exc_emit_hex64
-	mov w2, #' '
-	bl  hw_uart_putc
-	ldr w0, [x18, #UART0_FR]
-	bl  exc_emit_hex64
-	mov w2, #' '
-	bl  hw_uart_putc
-	ldr w0, [x18, #UART0_DR]
-	bl  exc_emit_hex64
 	b    forth_bye
 wait_key_sleep:
 	wfi
 	b    wait_key_irq
 got_key_irq:
-	mov w2, #'R'
-	bl  hw_uart_putc
 	ldrb w0, [x2]
 	str  x0, [x19, #-8]!
 	b    sys_next
@@ -1149,34 +1033,6 @@ forth_bye:
 	hvc  #0
 	b    forth_bye
 
-// forth_uart_hex: ( -- ) read one byte from UART and emit its hex digits
-forth_uart_hex:
-	bl  hw_uart_getc          // w0 = byte
-	mov w1, w0                // copy
-	lsr w2, w1, #4            // high nibble
-	and w2, w2, #0xF
-	cmp w2, #10
-	b.lt hex_high_digit
-	add w2, w2, #'A' - 10
-	b   emit_high_done
-hex_high_digit:
-	add w2, w2, #'0'
-emit_high_done:
-	mov w0, w2
-	bl  hw_uart_putc
-
-	and w1, w1, #0xF          // low nibble
-	cmp w1, #10
-	b.lt hex_low_digit
-	add w1, w1, #'A' - 10
-	b   emit_low_done
-hex_low_digit:
-	add w1, w1, #'0'
-emit_low_done:
-	mov w0, w1
-	bl  hw_uart_putc
-	b   sys_next
-
 forth_branch:
 	ldr x0, [x21], #8
 	mov x21, x0
@@ -1189,52 +1045,4 @@ forth_zero_branch:
 	mov  x21, x1
 
 skip_zero_branch:
-	b sys_next
-
-forth_move: // ( src dest count -- ) move count bytes from src to dest
-	ldr x2, [x19], #8  // count
-	ldr x1, [x19], #8  // dest
-	ldr x0, [x19], #8  // src
-	cbz x2, move_done
-move_loop:
-	ldrb w3, [x0], #1
-	strb w3, [x1], #1
-	sub x2, x2, #1
-	cbnz x2, move_loop
-move_done:
-	b sys_next
-
-forth_fill: // ( addr count char -- ) fill count bytes at addr with char
-	ldr x2, [x19], #8  // char
-	ldr x1, [x19], #8  // count
-	ldr x0, [x19], #8  // addr
-	cbz x1, fill_done
-fill_loop:
-	strb w2, [x0], #1
-	sub x1, x1, #1
-	cbnz x1, fill_loop
-fill_done:
-	b sys_next
-
-forth_abs: // ( n -- |n| ) absolute value
-	ldr x0, [x19]
-	cmp x0, #0
-	cneg x0, x0, lt
-	str x0, [x19]
-	b sys_next
-
-forth_min: // ( a b -- min(a,b) )
-	ldr x0, [x19], #8
-	ldr x1, [x19]
-	cmp x1, x0
-	csel x0, x0, x1, lt
-	str x0, [x19]
-	b sys_next
-
-forth_max: // ( a b -- max(a,b) )
-	ldr x0, [x19], #8
-	ldr x1, [x19]
-	cmp x1, x0
-	csel x0, x0, x1, gt
-	str x0, [x19]
 	b sys_next

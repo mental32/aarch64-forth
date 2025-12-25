@@ -1,8 +1,6 @@
 \ EXPECT: 321
 \ branch / 0branch loop
-
-: 1-     ( n -- n-1 ) 1 - ;
-
+include prelude.fth
 : boot
   3 &var_cell !
   label:loop

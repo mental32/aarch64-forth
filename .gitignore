@@ -1,0 +1,16 @@
+# Build artifacts
+forth.elf
+forth.bin
+generated.S
+
+# QEMU / DT outputs
+virt.dtb
+virt.dts
+
+# Editor/OS cruft
+*~
+.#*
+.DS_Store
+
+# Zig cache
+.zig-cache/
